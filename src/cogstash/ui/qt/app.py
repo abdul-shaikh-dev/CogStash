@@ -1,51 +1,23 @@
-"""Capture and read-only Browse prototype. No access to the user's default config."""
+"""Capture widgets and theme setup. No access to the user's default config."""
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QPersistentModelIndex, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QCursor, QHideEvent, QKeyEvent, QTextCursor
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QCursor, QHideEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
-    QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QListView,
     QListWidget,
     QPlainTextEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from cogstash.core import DEFAULT_SMART_TAGS, Note, append_note_to_file, parse_notes, search_notes
+from cogstash.core import DEFAULT_SMART_TAGS, append_note_to_file
+from cogstash.ui.qt.browse import BrowseWindow as BrowseWindow
 from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
-
-
-class NoteModel(QAbstractListModel):
-    def __init__(self) -> None:
-        super().__init__()
-        self.notes: list[Note] = []
-
-    def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self.notes)
-
-    def data(self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid() or not 0 <= index.row() < len(self.notes):
-            return None
-        note = self.notes[index.row()]
-        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.AccessibleTextRole):
-            return f"{note.timestamp:%d %b %Y  %H:%M}\n{note.text}"
-        if role == Qt.ItemDataRole.ToolTipRole:
-            return note.text
-        return None
-
-    def replace(self, notes: list[Note]) -> None:
-        self.beginResetModel()
-        self.notes = notes
-        self.endResetModel()
 
 
 class CaptureEdit(QPlainTextEdit):
@@ -196,64 +168,18 @@ class CaptureWindow(QWidget):
         self.hide()
 
 
-class BrowseWindow(QWidget):
-    close_requested = Signal()
-
-    def __init__(self, notes_path: Path, managed: bool = False) -> None:
-        super().__init__()
-        self.notes_path = notes_path
-        self.notes: list[Note] = []
-        self.managed = managed
-        self.setWindowTitle("CogStash · Browse prototype")
-        self.resize(760, 620)
-        layout = QVBoxLayout(self)
-        title = QLabel("Your notes")
-        title.setObjectName("heading")
-        layout.addWidget(title)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search your notes…")
-        self.search.setAccessibleName("Search notes")
-        layout.addWidget(self.search)
-        self.model = NoteModel()
-        self.view = QListView()
-        self.view.setAccessibleName("Notes")
-        self.view.setModel(self.model)
-        self.view.setWordWrap(True)
-        self.view.setSpacing(6)
-        layout.addWidget(self.view)
-        self.status = QLabel()
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
-        self.action_row = QHBoxLayout()
-        refresh = QPushButton("Refresh")
-        refresh.clicked.connect(self.reload)
-        self.action_row.addWidget(refresh)
-        layout.addLayout(self.action_row)
-        self.search.textChanged.connect(self.apply_filter)
-        self.reload()
-
-    @Slot()
-    def reload(self) -> None:
-        try:
-            self.notes = sorted(parse_notes(self.notes_path), key=lambda n: (n.timestamp, n.index), reverse=True)
-        except (OSError, ValueError, UnicodeError) as exc:
-            self.notes = []
-            self.model.replace([])
-            self.status.setText(f"Could not read notes: {exc}")
-            return
-        self.apply_filter()
-
-    @Slot()
-    def apply_filter(self) -> None:
-        self.model.replace(search_notes(self.notes, self.search.text()))
-        self.status.setText(f"{len(self.model.notes)} of {len(self.notes)} notes · {self.notes_path}")
-
-    def closeEvent(self, event: QCloseEvent) -> None:
-        if self.managed:
-            event.ignore()
-            self.close_requested.emit()
-        else:
-            event.accept()
+def apply_theme(app: QApplication, theme: str) -> None:
+    palette = THEMES[theme]
+    app.setStyleSheet(f"""
+        QWidget {{ background: {palette['bg']}; color: {palette['fg']}; font-size: 14px; }}
+        QLineEdit, QPlainTextEdit, QListView, QComboBox {{ background: {palette['entry_bg']}; border: 1px solid {palette['muted']}; border-radius: 6px; padding: 10px; }}
+        QPushButton {{ padding: 8px 18px; border: 1px solid {palette['accent']}; border-radius: 6px; }}
+        QPushButton:disabled {{ color: {palette['muted']}; border-color: {palette['muted']}; }}
+        QPushButton:focus, QLineEdit:focus, QPlainTextEdit:focus {{ border: 2px solid {palette['accent']}; }}
+        QListView::item {{ padding: 12px; border-bottom: 1px solid {palette['muted']}; }}
+        QListView::item:selected {{ background: {palette['accent']}; color: {palette['bg']}; }}
+        QLabel#heading {{ font-size: 24px; font-weight: 600; padding: 8px 0; }}
+    """)
 
 
 def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: str = "default") -> int:
@@ -261,17 +187,8 @@ def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: 
 
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
-    palette = THEMES[theme]
-    app.setStyleSheet(f"""
-        QWidget {{ background: {palette['bg']}; color: {palette['fg']}; font-size: 14px; }}
-        QLineEdit, QPlainTextEdit, QListView {{ background: {palette['entry_bg']}; border: 1px solid {palette['muted']}; border-radius: 6px; padding: 10px; }}
-        QPushButton {{ padding: 8px 18px; border: 1px solid {palette['accent']}; border-radius: 6px; }}
-        QPushButton:focus, QLineEdit:focus, QPlainTextEdit:focus {{ border: 2px solid {palette['accent']}; }}
-        QListView::item {{ padding: 12px; border-bottom: 1px solid {palette['muted']}; }}
-        QListView::item:selected {{ background: {palette['accent']}; color: {palette['bg']}; }}
-        QLabel#heading {{ font-size: 24px; font-weight: 600; padding: 8px 0; }}
-    """)
-    runtime = Runtime(app, notes, window_size)
+    apply_theme(app, theme)
+    runtime = Runtime(app, notes, window_size, theme)
     try:
         if enable_hotkey:
             runtime.start_hotkey(hotkey)

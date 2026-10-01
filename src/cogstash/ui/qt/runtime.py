@@ -14,11 +14,12 @@ from cogstash.ui.qt.hotkeys import HotkeyAdapter
 class Runtime(QObject):
     capture_requested = Signal()
 
-    def __init__(self, app: QApplication, notes: Path, window_size: str = "default") -> None:
+    def __init__(self, app: QApplication, notes: Path, window_size: str = "default", theme: str = "tokyo-night") -> None:
         super().__init__()
         self.app = app
         self.notes = notes
         self.window_size = window_size
+        self.theme = theme
         self.closed = False
         self._capture: CaptureWindow | None = None
         self._browse: BrowseWindow | None = None
@@ -58,7 +59,7 @@ class Runtime(QObject):
     @property
     def browse(self) -> BrowseWindow:
         if self._browse is None:
-            self._browse = BrowseWindow(self.notes, managed=True)
+            self._browse = BrowseWindow(self.notes, managed=True, theme=self.theme)
             self._browse.close_requested.connect(self.close_browse)
             for text, callback in (("Capture", self.show_capture), ("Quit", self.request_quit)):
                 button = QPushButton(text)
@@ -80,10 +81,12 @@ class Runtime(QObject):
     def show_browse(self) -> None:
         if self.closed:
             return
-        self.browse.reload()
-        self.browse.showNormal()
-        self.browse.raise_()
-        self.browse.activateWindow()
+        if self._browse is not None:
+            self._browse.reload()
+        browse = self.browse
+        browse.showNormal()
+        browse.raise_()
+        browse.activateWindow()
 
     @Slot()
     def note_saved(self) -> None:
@@ -129,6 +132,8 @@ class Runtime(QObject):
     @Slot()
     def request_quit(self) -> None:
         if self.closed:
+            return
+        if self._browse is not None and not self._browse.confirm_discard_edit():
             return
         if self._capture is not None and self._capture.editor.toPlainText().strip():
             answer = QMessageBox.question(
