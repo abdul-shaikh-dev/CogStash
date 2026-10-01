@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra qt
       - run: uv run ruff check src/ tests/
       - run: uv run mypy src/cogstash/
 
@@ -76,5 +76,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: uv sync --extra dev --extra qt
       - run: uv run pytest tests/test_qt_prototype.py tests/cli/test_import_boundary.py -q --timeout=30

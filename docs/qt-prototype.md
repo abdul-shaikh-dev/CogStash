@@ -32,7 +32,7 @@ This is a console-enabled onedir diagnostic build. Production build targets and 
 ## Validation recorded on 2026-10-02
 
 - Seven prototype behavioral tests plus existing core/CLI tests: 184 passed.
-- Full suite: 337 passed, three existing Tk settings failures. The same three failures reproduce when running `tests/ui/test_settings.py` alone, without collecting or importing the Qt tests. They concern settings construction creating config state and startup-toggle expectations on this Windows machine. No Tk settings code was modified.
+- Full suite: 341 passed. The initial three Tk settings failures came from tests reading the real Windows startup directory. UI tests now isolate APPDATA per test, preserving the application behavior while removing dependence on the host startup state.
 - Ruff and mypy pass after the prototype type fixes.
 - PyInstaller creates a 117.9 MiB Windows onedir artifact; source and packaged `--help` pass. A clean rebuilt executable also remained running for four seconds under offscreen Qt without a traceback, then the test terminated it.
 - Offscreen visual inspection covers capture and filtered Browse with the Tokyo Night theme. The inspection environment required explicitly loading the system font; it does not validate native Windows focus or scaling.
