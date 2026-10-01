@@ -15,7 +15,7 @@ CogStash is a desktop brain-dump tool: press a global hotkey, type a thought, an
   - `__main__.py` — `python -m cogstash` support
 - **`tests/`** — pytest test suite
 - **`docs/superpowers/specs/`** — Design specs for each phase
-- **`docs/superpowers/plans/`** — Implementation plans for each phase
+- **`docs/qt-prototype.md`** — Experimental Qt entry point, build instructions, and validation status
 
 ## Key Conventions
 

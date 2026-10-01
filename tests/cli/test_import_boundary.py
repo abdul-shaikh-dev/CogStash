@@ -13,7 +13,7 @@ def test_cogstash_cli_imports_without_gui_dependencies(tmp_path):
         "import json\n"
         "from pathlib import Path\n"
         "import sys\n"
-        "blocked = {'tkinter', 'pystray', 'PIL', 'Pillow'}\n"
+        "blocked = {'tkinter', 'pystray', 'PIL', 'Pillow', 'PySide6'}\n"
         "orig = builtins.__import__\n"
         "def guarded(name, *args, **kwargs):\n"
         "    if name.split('.')[0] in blocked:\n"

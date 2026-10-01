@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+qt = ["PySide6-Essentials==6.11.2; python_version >= '3.10'"]
 dev = ["pytest>=7.0", "ruff>=0.4", "mypy>=1.10", "setuptools-scm>=8", "pyinstaller>=6.0", "pytest-timeout>=2.0"]
 
 [project.scripts]
