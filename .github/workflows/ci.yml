@@ -80,4 +80,4 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: uv sync --extra dev --extra qt
-      - run: uv run pytest tests/test_qt_prototype.py tests/test_qt_lifecycle.py tests/cli/test_import_boundary.py -q --timeout=30
+      - run: uv run pytest tests/test_qt_prototype.py tests/test_qt_lifecycle.py tests/test_qt_browse.py tests/cli/test_import_boundary.py -q --timeout=30

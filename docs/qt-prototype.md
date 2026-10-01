@@ -1,6 +1,6 @@
 # Qt Widgets prototype
 
-This is the first implementation slice of issue #57. The normal GUI still uses Tkinter. The prototype has capture, a read-only searchable Browse list, tray actions, and a global-hotkey adapter. Capture now provides default-tag autocomplete, multiline growth, and size presets. It does not yet provide settings, note editing/deletion, onboarding, or production feature parity.
+The experimental Qt UI tracks #57, #58, and #59. The normal GUI still uses Tkinter. The prototype has capture, Browse with note actions, tray actions, and a global-hotkey adapter. Capture provides default-tag autocomplete, multiline growth, and size presets. Settings, onboarding, and production cutover are still pending.
 
 ## Run
 
@@ -23,13 +23,47 @@ This is a console-enabled onedir diagnostic build. Production build targets and 
 ## Architecture
 
 - `ui/qt/__main__.py` parses prototype-only options and imports Qt lazily.
-- `ui/qt/app.py` creates one QApplication and defines capture, the list model, and Browse.
+- `ui/qt/app.py` creates one QApplication and defines capture and shared theme setup.
+- `ui/qt/browse.py` owns the note model, card delegate, filters, edit dialog, and note actions.
 - `ui/qt/runtime.py` owns lazy, reused windows and QSystemTrayIcon actions.
 - `ui/qt/hotkeys.py` owns the pynput listener and a Qt timer that checks for asynchronous listener failure.
 - Background hotkey callbacks emit a queued Qt signal. They do not operate on widgets.
 - Existing core parsing, saving, and search functions are reused without changes.
 - PySide6 Essentials is optional; QtCharts, Qt Graphs, QML, and Qt Quick are excluded from the prototype build.
 - Listener failures open Browse with actionable feedback. A live listener does not prove that every application or desktop permits global capture; native platform validation remains necessary.
+
+## Browse migration for #59
+
+Browse now uses a QListView, NoteModel, and a card delegate. Cards paint timestamps, multiline note text, tags, and completed-state strikethrough without constructing a widget tree for every note. The layout cache is bounded to the current width/font and clears on model changes. Cards stay within the viewport when the scrollbar appears or the window resizes. Selected text uses a contrasting foreground in every supported theme.
+
+Search retains the core's case-insensitive AND behavior. The tag selector includes built-in and discovered tags with core tag counts. Active filters have visible feedback, a clear action, and distinct empty states. Existing search/tag selections survive reloads. File-read failures remain visible instead of appearing as an empty successful result.
+
+Select a note to use Edit, Mark done, Delete, or Copy text. F2 edits, Ctrl+D marks a todo done, Delete opens confirmation, and Ctrl+C copies while the note list has focus. Double-click edits; right-click opens the same actions. Escape closes Browse. Editor shortcuts do not trigger note actions. Edit dialogs retain input after failed or stale mutations, and Browse close/application Quit can preserve unsaved edits. After editing or marking done, selection stays on that note; if an edit removes it from the current filter, note actions are disabled until another note is selected.
+
+Mutations reuse existing core functions. The Qt layer verifies timestamp, text, and line position before invoking them, reloads actual disk contents after success, and maps each MutationStatus to feedback. This catches same-minute stale edits that the core's timestamp-only check can miss. It is an optimistic check, not cross-process file locking.
+
+Delete previews up to three lines and 180 characters as plain text, with No as the default. Undo restores the most recent successful deletion for the session, including continuation lines. It preserves newly appended notes, but refuses intervening edits or reordering that invalidate the saved file baseline. A failed restore retains the undo record for retry. This is deliberately stricter than Tk's insertion at an old line number, which can place restored text inside a changed note. The Markdown format and core mutation implementations are unchanged.
+
+Validation for this slice:
+
+- Full local suite: 392 passed, including 24 Browse regression cases. Ruff and mypy passed.
+- Rendered all five themes, inspected selected/done/multiline cards, and checked resize behavior. An offscreen 150% scaling probe produced a 1140-pixel image for a 760-unit window with no horizontal overflow. Native mixed-monitor scaling and screen-reader operation remain unverified.
+- A 10,000-note fixture constructed and displayed in about 459 ms; filtering to one result took about 7 ms. This was a single offscreen measurement inside an already-running QApplication, excluding process startup and imports.
+- A fresh Windows diagnostic build under `dist/qt-browse` includes notices and passes packaged help and a four-second startup check.
+- Browse regressions now run in both Windows and Ubuntu Qt CI jobs.
+
+The repeatable source Browse benchmark was rerun with three fresh processes per case:
+
+| Notes | Window | Median startup | Idle working set | Idle private memory |
+| --- | --- | --- | --- | --- |
+| 0 | Tk Browse | 709 ms | 44.2 MiB | 25.3 MiB |
+| 0 | Qt Browse | 700 ms | 74.6 MiB | 33.8 MiB |
+| 1,000 | Tk Browse | 9,107 ms | 86.1 MiB | 65.6 MiB |
+| 1,000 | Qt Browse | 808 ms | 78.2 MiB | 37.5 MiB |
+
+The method and cache/startup limitations described in the earlier comparison still apply. Qt now includes the note actions, though its layout and configuration integration differ from Tk. Results remain local measurements, not performance guarantees. Raw output is in `build/qt-browse/browse-benchmark-final.json`.
+
+Issue #59 remains open for native accessibility/scaling acceptance and integration with the settings work in #60. This slice does not implement Note Aging, resurrection, analytics, or storage metadata.
 
 ## Lifecycle integration for #58
 
