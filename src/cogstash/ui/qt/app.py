@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cogstash.core import DEFAULT_SMART_TAGS, append_note_to_file
+from cogstash.core import DEFAULT_SMART_TAGS, CogStashConfig, append_note_to_file
 from cogstash.ui.qt.browse import BrowseWindow as BrowseWindow
 from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
 
@@ -159,7 +159,7 @@ class CaptureWindow(QWidget):
         if len(text.strip()) > 10_000:
             self.status.setText("This note exceeds 10,000 characters. Shorten it before saving.")
             return
-        if not append_note_to_file(text, self.notes_path):
+        if not append_note_to_file(text, self.notes_path, self.editor.tags):
             self.status.setText("Could not save. Your text is retained; check the notes file and try again.")
             return
         self.editor.clear()
@@ -174,6 +174,7 @@ def apply_theme(app: QApplication, theme: str) -> None:
         QWidget {{ background: {palette['bg']}; color: {palette['fg']}; font-size: 14px; }}
         QLineEdit, QPlainTextEdit, QListView, QComboBox {{ background: {palette['entry_bg']}; border: 1px solid {palette['muted']}; border-radius: 6px; padding: 10px; }}
         QPushButton {{ padding: 8px 18px; border: 1px solid {palette['accent']}; border-radius: 6px; }}
+        QCheckBox:disabled {{ color: {palette['muted']}; }}
         QPushButton:disabled {{ color: {palette['muted']}; border-color: {palette['muted']}; }}
         QPushButton:focus, QLineEdit:focus, QPlainTextEdit:focus {{ border: 2px solid {palette['accent']}; }}
         QListView::item {{ padding: 12px; border-bottom: 1px solid {palette['muted']}; }}
@@ -182,7 +183,8 @@ def apply_theme(app: QApplication, theme: str) -> None:
     """)
 
 
-def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: str = "default") -> int:
+def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: str = "default",
+        config: CogStashConfig | None = None, config_path: Path | None = None) -> int:
     from cogstash.ui.qt.runtime import Runtime
 
     app = QApplication([])
@@ -190,9 +192,13 @@ def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: 
     apply_theme(app, theme)
     runtime = Runtime(app, notes, window_size, theme)
     try:
+        if config is not None:
+            runtime.configure(config, config_path)
         if enable_hotkey:
             runtime.start_hotkey(hotkey)
         runtime.show_browse()
+        if config_path is not None:
+            runtime.show_onboarding()
         return app.exec()
     finally:
         runtime.shutdown()

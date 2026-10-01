@@ -1,6 +1,6 @@
 # Qt Widgets prototype
 
-The experimental Qt UI tracks #57, #58, and #59. The normal GUI still uses Tkinter. The prototype has capture, Browse with note actions, tray actions, and a global-hotkey adapter. Capture provides default-tag autocomplete, multiline growth, and size presets. Settings, onboarding, and production cutover are still pending.
+The experimental Qt UI tracks #57 through #60. The normal GUI still uses Tkinter. The prototype has capture, Browse with note actions, settings, onboarding, tray actions, and a global-hotkey adapter. Capture provides configured-tag autocomplete, multiline growth, and size presets. Installed startup integration and production cutover are still pending.
 
 ## Run
 
@@ -11,7 +11,7 @@ uv sync --extra dev --extra qt
 uv run python -m cogstash.ui.qt --notes ./prototype-notes.md
 ```
 
-The explicit notes path is required to avoid silently writing to personal notes during evaluation. The prototype does not read or write the default config. Use `--no-hotkey` when another CogStash instance is running, or provide a different `--hotkey`. The Browse window opens at startup so errors and fallback Capture/Quit controls remain reachable. Escape hides capture and retains the draft; successful save clears it. Save failures and notes over the core's 10,000-character limit retain the input.
+Provide an explicit `--notes` or `--config` path. The prototype does not read or write the default config implicitly. `--notes` alone uses session-only settings. To persist settings, use `--config ./prototype.json`, optionally with `--notes ./prototype-notes.md`. A missing config defaults to a sibling `prototype.notes.md` file and opens setup; neither file is created until a save. Existing config files use the current core format. Explicit notes, hotkey, theme, and window-size options override the loaded values for this run and are persisted only if Settings is saved. Use `--no-hotkey` when another CogStash instance is running, or provide a different `--hotkey`. The Browse window opens at startup so errors and fallback Capture/Quit controls remain reachable. Escape hides capture and retains the draft; successful save clears it. Save failures and notes over the core's 10,000-character limit retain the input.
 
 ```powershell
 uv run python scripts/build_qt.py
@@ -26,11 +26,34 @@ This is a console-enabled onedir diagnostic build. Production build targets and 
 - `ui/qt/app.py` creates one QApplication and defines capture and shared theme setup.
 - `ui/qt/browse.py` owns the note model, card delegate, filters, edit dialog, and note actions.
 - `ui/qt/runtime.py` owns lazy, reused windows and QSystemTrayIcon actions.
+- `ui/qt/settings.py` owns draft settings, checked persistence through the core serializer, and onboarding selection using existing installer helpers.
 - `ui/qt/hotkeys.py` owns the pynput listener and a Qt timer that checks for asynchronous listener failure.
 - Background hotkey callbacks emit a queued Qt signal. They do not operate on widgets.
 - Existing core parsing, saving, and search functions are reused without changes.
 - PySide6 Essentials is optional; QtCharts, Qt Graphs, QML, and Qt Quick are excluded from the prototype build.
 - Listener failures open Browse with actionable feedback. A live listener does not prove that every application or desktop permits global capture; native platform validation remains necessary.
+
+## Settings and onboarding migration for #60
+
+Settings opens from Browse or the tray. General, Appearance, and Tags tabs provide notes-file selection, hotkey syntax checking, theme and capture size choices, and custom tag editing. All changes stay in a draft until Save. Cancel and Escape do not change files or runtime settings. Saving updates the existing capture and Browse windows while preserving capture text and search filters. Configured tags reach capture suggestions, Markdown emoji rendering, and Browse filters. Tag colors remain in the core configuration format; Browse cards retain their theme foreground colors.
+
+A changed global hotkey takes effect on restart, matching the existing Tk behavior. The syntax check does not register a second listener or claim that OS permissions or shortcut conflicts were tested. Notes-file changes are blocked during a capture draft or open note edit. A successful file switch clears the previous file's delete-undo record. Application Quit asks before discarding unsaved settings.
+
+Persistence stages the existing core serializer into a unique sibling file and replaces the destination after successful serialization. It preserves unrelated fields and unknown top-level keys. A failed save keeps the dialog draft and original file. Changes to the config while the dialog is open cause a conflict message rather than an overwrite. This is optimistic conflict detection, not cross-process locking. Invalid paths, malformed config containers, invalid tag rows, and write failures receive feedback. The core config implementation remains unchanged.
+
+A config with no recorded version opens setup using the same settings controls plus a capture/Browse introduction. Existing configs select installed-build welcome or ordinary upgrade welcome using the existing installer conditions. Completing setup or acknowledging welcome records the current version only after a successful save. Cancel does not record completion. Existing configurations require no format migration.
+
+Startup is deliberately read-only in this optional prototype. On Windows, its checkbox reflects the actual installer-managed startup script without modifying it or the stored setting on open. Other platforms show the unsupported state. The production helper still launches the Tk entry point, and the diagnostic Qt executable requires explicit paths. Enabling or disabling startup belongs with the installed Qt launch contract in #61. Issue #60 therefore remains open for startup integration and native acceptance.
+
+Validation for this slice:
+
+- Full local suite: 440 passed, including 48 settings/onboarding cases. Ruff and mypy passed.
+- Tests cover save/cancel, unknown-field retention, failed serialization/replacement, external edits, notes-path validation, tags, hotkey syntax feedback, onboarding selection, version acknowledgement, read-only startup state, live runtime updates, draft guards, and explicit config CLI options.
+- Rendered all three tabs in all five themes and inspected the screenshots. Native screen-reader operation, physical keyboard/focus behavior, and mixed-monitor scaling remain pending.
+- The Windows diagnostic build is isolated under `dist/qt-settings`, leaving the earlier running prototype untouched. Packaged help and startup checks use temporary notes/config files and disable the global hotkey.
+- Settings regressions are included in the Windows and Ubuntu Qt CI jobs. No production installer or default GUI entry point changed.
+
+The following sections retain the earlier migration measurements and behavior as historical snapshots.
 
 ## Browse migration for #59
 
