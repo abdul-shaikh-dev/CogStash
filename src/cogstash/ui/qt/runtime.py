@@ -1,6 +1,7 @@
 """Qt application ownership and GUI-thread command dispatch."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
@@ -11,6 +12,7 @@ from cogstash.core import CogStashConfig, merge_tags
 from cogstash.ui.qt.app import BrowseWindow, CaptureWindow, apply_theme
 from cogstash.ui.qt.hotkeys import HotkeyAdapter
 from cogstash.ui.qt.settings import SettingsDialog, WelcomeDialog, onboarding_kind
+from cogstash.ui.qt.startup import StartupManager
 from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
 
 
@@ -25,6 +27,7 @@ class Runtime(QObject):
         self.theme = theme
         self.config = CogStashConfig(output_file=notes, window_size=window_size, theme=theme)
         self.config_path: Path | None = None
+        self.installed = False
         self._settings: SettingsDialog | None = None
         self._welcome: WelcomeDialog | None = None
         self.closed = False
@@ -80,7 +83,8 @@ class Runtime(QObject):
             layout.addWidget(self.warning)
         return self._browse
 
-    def configure(self, config: CogStashConfig, config_path: Path | None) -> None:
+    def configure(self, config: CogStashConfig, config_path: Path | None, *, installed: bool = False) -> None:
+        self.installed = installed
         self.config_path = config_path
         self.apply_config(config)
 
@@ -125,8 +129,9 @@ class Runtime(QObject):
             return
         if self._settings is None:
             try:
+                startup = StartupManager(self.config_path) if self.installed and sys.platform == "win32" and self.config_path is not None else None
                 self._settings = SettingsDialog(self.config, self.config_path, self.apply_config,
-                                                setup=setup, can_apply=self.can_apply_config)
+                                                setup=setup, can_apply=self.can_apply_config, startup=startup)
             except (OSError, ValueError) as exc:
                 self.show_warning(f"Could not open settings: {exc}")
                 return
@@ -249,6 +254,8 @@ class Runtime(QObject):
         if self._capture is not None:
             self._capture.hide()
         if self._browse is not None:
+            if self._browse._edit_dialog is not None:
+                self._browse._edit_dialog.reject()
             self._browse.hide()
         if self._settings is not None:
             self._settings.reject()

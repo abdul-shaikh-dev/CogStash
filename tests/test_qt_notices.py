@@ -5,6 +5,7 @@ import importlib.util
 import json
 import runpy
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -101,6 +102,7 @@ def test_notices_are_generated_only_after_successful_build(monkeypatch, build_su
     monkeypatch.syspath_prepend(str(scripts))
     import qt_notices
 
+    monkeypatch.setattr(sys, "argv", ["build_qt.py"])
     events = []
 
     def build(*args, **kwargs):
@@ -122,3 +124,17 @@ def test_notices_are_generated_only_after_successful_build(monkeypatch, build_su
         with pytest.raises(subprocess.CalledProcessError):
             runpy.run_path(str(scripts / "build_qt.py"), run_name="__main__")
         assert events == ["build"]
+
+
+def test_staged_inventory_includes_renamed_ui_and_added_cli(collector):
+    module, root, bundle, _ = collector
+    module.write_notices(bundle, root)
+    (bundle / "app.exe").rename(bundle / "CogStash.exe")
+    (bundle / "CogStash-CLI.exe").write_bytes(b"CLI fixture")
+    module.refresh_staged_inventory(bundle)
+    report = json.loads((bundle / "notices/inventory.json").read_text(encoding="utf-8"))
+    entries = {item["path"]: item for item in report["bundled_files_excluding_notices"]}
+    assert set(entries) == {"CogStash.exe", "CogStash-CLI.exe"}
+    for name, item in entries.items():
+        assert item["sha256"] == module.sha256(bundle / name)
+    assert report["review_status"] == "incomplete"

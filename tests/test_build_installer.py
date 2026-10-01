@@ -554,3 +554,15 @@ def test_installer_script_installs_cli_binary_without_shortcut():
     # No Start Menu or Desktop shortcut entries for CogStash CLI
     assert 'Name: "{group}\\CogStash CLI"' not in iss
     assert 'Name: "{autodesktop}\\CogStash CLI"' not in iss
+
+
+def test_compile_installer_resolves_paths_relative_to_caller(tmp_path, monkeypatch):
+    module = _load_build_installer_module()
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    module.compile_installer(compiler="iscc", iss_path=Path("installer/app.iss"), version="1.2.3",
+                             source_dir=Path("build/payload"), output_dir=Path("dist"))
+    assert f"/DSourceDir={tmp_path / 'build/payload'}" in calls[0]
+    assert f"/DOutputDir={tmp_path / 'dist'}" in calls[0]
+    assert calls[0][-1] == str(tmp_path / "installer/app.iss")

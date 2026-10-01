@@ -94,6 +94,12 @@ def stage_windows_payload(*, bundle_dir: Path, cli_binary: Path, version: str, s
     cli_bin_dir = staged_dir / get_staged_cli_bin_dirname()
     cli_bin_dir.mkdir()
     (cli_bin_dir / get_staged_cli_shim_name()).write_text(_cli_shim_contents(), encoding="utf-8")
+    if (staged_dir / "notices" / "inventory.json").is_file():
+        try:
+            from scripts.qt_notices import refresh_staged_inventory
+        except ModuleNotFoundError:
+            from qt_notices import refresh_staged_inventory
+        refresh_staged_inventory(staged_dir)
     return staged_dir
 
 
@@ -106,9 +112,9 @@ def compile_installer(*, compiler: str, iss_path: Path, version: str, source_dir
         compiler,
         f"/DAppVersion={version}",
         f"/DVersionInfoVersion={version_info_version}",
-        f"/DSourceDir={source_dir}",
-        f"/DOutputDir={output_dir}",
-        str(iss_path),
+        f"/DSourceDir={source_dir.resolve()}",
+        f"/DOutputDir={output_dir.resolve()}",
+        str(iss_path.resolve()),
     ]
     subprocess.run(cmd, check=True)
 

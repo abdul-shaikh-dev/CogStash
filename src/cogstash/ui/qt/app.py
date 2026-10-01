@@ -184,7 +184,7 @@ def apply_theme(app: QApplication, theme: str) -> None:
 
 
 def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: str = "default",
-        config: CogStashConfig | None = None, config_path: Path | None = None) -> int:
+        config: CogStashConfig | None = None, config_path: Path | None = None, *, installed: bool = False) -> int:
     from cogstash.ui.qt.runtime import Runtime
 
     app = QApplication([])
@@ -193,7 +193,7 @@ def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: 
     runtime = Runtime(app, notes, window_size, theme)
     try:
         if config is not None:
-            runtime.configure(config, config_path)
+            runtime.configure(config, config_path, installed=installed)
         if enable_hotkey:
             runtime.start_hotkey(hotkey)
         runtime.show_browse()

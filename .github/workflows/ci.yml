@@ -80,4 +80,44 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
       - run: uv sync --extra dev --extra qt
-      - run: uv run pytest tests/test_qt_prototype.py tests/test_qt_lifecycle.py tests/test_qt_browse.py tests/test_qt_settings.py tests/cli/test_import_boundary.py -q --timeout=30
+      - run: uv run pytest tests/test_qt_prototype.py tests/test_qt_lifecycle.py tests/test_qt_browse.py tests/test_qt_settings.py tests/test_qt_startup.py tests/cli/test_import_boundary.py -q --timeout=30
+
+
+  qt-candidate-packaging:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: uv sync --extra dev --extra qt
+      - name: Build isolated Qt candidate and CLI
+        run: uv run python scripts/build_qt.py --candidate --with-cli
+      - name: Verify packaged startup and import boundaries
+        run: uv run python scripts/smoke_qt.py
+      - name: Compile candidate Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $compiler)) { choco install innosetup --no-progress -y }
+          uv run python scripts/build_installer.py --dist-dir dist/qt-candidate --build-dir build/qt-candidate --output-dir dist/qt-candidate --compiler $compiler
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: qt-candidate-evidence-${{ matrix.os }}
+          path: |
+            build/qt-candidate/smoke.json
+            dist/qt-candidate/*-onedir/notices/**
+          if-no-files-found: warn

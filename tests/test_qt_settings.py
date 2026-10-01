@@ -371,3 +371,4 @@ def test_settings_path_change_during_note_edit_is_blocked_before_persistence(app
     assert path.read_bytes() == baseline
     assert runtime.notes == config.output_file
     runtime.shutdown()
+    assert runtime.browse._edit_dialog is None
