@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from qt_notices import write_notices
+
 
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -27,6 +29,8 @@ def main() -> None:
         "--exclude-module", "PySide6.QtCharts", "--exclude-module", "PySide6.QtGraphs",
         "--collect-data", "shiboken6",
     ], check=True, env=build_env)
+    notices = write_notices(root / "dist/qt-prototype/CogStash-Qt-Prototype", root)
+    print(f"Diagnostic notices and inventory: {notices}. License review remains incomplete.")
 
 
 if __name__ == "__main__":

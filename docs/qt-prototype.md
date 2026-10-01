@@ -40,11 +40,68 @@ This is a console-enabled onedir diagnostic build. Production build targets and 
 
 The first packaged GUI smoke test exposed an incompatible ICU DLL from Poppler on the session PATH. The build script now prioritizes Windows System32 during dependency resolution. A clean rebuild excludes that unrelated ICU copy and starts successfully. No system DLLs were modified.
 
+## Additional Windows validation on 2026-10-02
+
+The user verified the packaged capture flow from Notepad with Ctrl+Alt+Shift+J: the capture window received typing without an extra click, Enter saved, and capture hid. The isolated test notes file confirmed the saved entries. This is a manual functional check, not a measured hotkey latency result.
+
+A source-level display probe placed Capture at the center of each available monitor, then called reveal/hide three times per monitor. All six reveals stayed inside the available desktop area and Qt reported editor focus. The displays were 2560x1440 and 1920x1080, both at device pixel ratio 1.0 and 96 logical DPI. This checks explicit placement and repeated activation through Qt methods. It does not test global hotkeys from other apps on each monitor, automatic monitor selection, display removal, or mixed scaling.
+
+The packaged executable also passed `--help` and remained running for five seconds with an empty temporary working directory, PATH limited to Windows System32, and Python/Qt environment overrides removed before selecting Qt's offscreen backend. It produced no stdout or stderr during startup. This reduces dependence on development paths; it does not replace a test on Windows without Python or developer runtimes installed.
+
+### Browse startup and memory comparison
+
+Run the repeatable Windows probe with:
+
+```powershell
+.venv/Scripts/python.exe scripts/benchmark_browse.py
+```
+
+The script creates temporary synthetic notes, opens each toolkit's current Browse window in a fresh process, and closes it after a two-second idle interval. It never loads personal configuration or registers hotkeys. Raw measurements and medians are written to `build/qt-prototype/browse-benchmark.json`. The default is three runs per toolkit and note count, with toolkit order reversed on alternate runs.
+
+| Synthetic notes | Window | Median startup | Idle working set | Idle private memory |
+| --- | --- | --- | --- | --- |
+| 0 | Tk Browse | 698 ms | 44.2 MiB | 25.3 MiB |
+| 0 | Qt Browse | 597 ms | 73.3 MiB | 33.8 MiB |
+| 1,000 | Tk Browse | 8,807 ms | 85.9 MiB | 65.5 MiB |
+| 1,000 | Qt Browse | 721 ms | 74.7 MiB | 35.2 MiB |
+
+These results use Python 3.14.0 on the development Windows machine. Startup spans subprocess launch, imports, window construction, and an initial event-processing pass. It is not a measurement of the first displayed frame. OS caches were not flushed, so these are fresh-process measurements, not cold-boot results. Neither probe starts tray or hotkey services. Qt uses the Browse class directly without the runtime stylesheet. Tk has editing, tag controls, and one widget tree per note; Qt currently has a read-only list model. Feature differences limit any conclusion about the frameworks alone.
+
+Qt uses more memory for an empty Browse window, but the current implementation opens a thousand-note list much faster and uses less memory than the Tk implementation. Repeat after feature parity before setting a production performance budget.
+
+### Diagnostic bundle inventory
+
+Before notices were added, the Windows payload contained 276 files totaling 117.9 MiB. Its Qt DLLs are Qt6Core, Qt6Gui, Qt6Widgets, Qt6Network, and Qt6Svg. The last two are present despite the prototype directly using only Core/Gui/Widgets. The package also includes PySide6 and Shiboken runtime files, Python, native runtime libraries, translations, and Qt plugins.
+
+The 20 bundled plugin DLLs are:
+
+- Generic: qtuiotouchplugin.
+- Icon engines: qsvgicon.
+- Image formats: qgif, qicns, qico, qjpeg, qsvg, qtga, qtiff, qwbmp, qwebp.
+- Network information: qnetworklistmanager.
+- Platforms: qdirect2d, qminimal, qoffscreen, qwindows.
+- Styles: qmodernwindowsstyle.
+- TLS: qcertonlybackend, qopensslbackend, qschannelbackend.
+
+The initial artifact had no LICENSE, COPYING, or NOTICE files. `scripts/build_qt.py` now runs `scripts/qt_notices.py` after a successful build. It adds a `notices` directory with the project license, Python's license, installed runtime dependency notices, and the PyInstaller bootloader license. The collector follows active package requirements from PySide6 Essentials, pynput, and Pillow. It also includes the LGPLv3 and GPLv3 texts from the pinned Qt 6.11.2 source release, with upstream URLs and SHA-256 checksums in `third_party/qt-6.11.2/sources.json`. Collection itself uses local files and does not require network access.
+
+The Qt wheels declare open-source options in metadata but include only a commercial-license reference in their installed notice files. The collector preserves that file unchanged and explains the distinction in its README. Including it does not assert a commercial Qt license.
+
+`notices/inventory.json` records installed dependency versions, declared licenses, available notice files, and hashes for the original bundle payload. It explicitly records incomplete review status. A version mismatch or changed pinned license aborts collection. Missing installed notices are reported as unresolved. Seven focused tests cover collection, hashes, unsafe paths, version changes, and integration with successful/failed builds. The collector was also run against the existing Windows artifact. Its executable payload was not rebuilt in this pass because the user's native-test instance remained open.
+
+This is a diagnostic inventory, not a complete SBOM or license review. Qt's nested third-party attributions, native DLLs, source availability, and other applicable distribution requirements still require verification before publishing. See [Qt third-party code](https://doc.qt.io/qt-6.11/licenses-used-in-qt.html), [Qt SBOM documentation](https://doc.qt.io/qt-6.11/sbom.html), and [Qt's LGPL guidance](https://www.qt.io/development/open-source-lgpl-obligations).
+
 ## Remaining before closing #57
 
-Verify native hotkey-to-input latency and focus from an editor, browser, and terminal; repeated activation; multiple monitors and display scales; idle memory and cold launch against Tk; a Windows machine without Python; other supported desktop platforms; and a module/license inventory with all required distribution notices. The prototype is not evidence that these checks have passed.
+- Measure native hotkey-to-input latency and verify focus from a browser and terminal, plus repeated global-hotkey activation.
+- Verify hotkeys across both monitors, mixed display scales, and display disconnection. Explicit placement at 100% scaling has passed.
+- Compare full application idle memory and cold launch against Tk at equivalent functionality. The source Browse comparison above is complete.
+- Run the packaged application on a clean Windows machine without Python and validate other supported desktop platforms.
+- Complete the module/license review and supply the remaining native-library and Qt third-party notices. The bundle now includes the locally available notices and pinned Qt license texts.
 
-Qt Core/Gui/Widgets and PySide6 have open-source licensing options with obligations. Check the actual bundled files before distribution. Do not infer that every module shipped by Qt is LGPL. References: https://doc.qt.io/qt-6/licensing.html and https://www.qt.io/development/open-source-lgpl-obligations.
+No Windows Sandbox executable or VirtualBox/VMware command was found in the checked locations on this host. Clean-machine validation still needs a separate environment.
+
+Issue #57 remains open. The normal GUI remains Tkinter.
 
 ## Cleanup
 
