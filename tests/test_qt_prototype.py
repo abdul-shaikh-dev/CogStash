@@ -12,7 +12,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from cogstash.core import parse_notes
-from cogstash.ui.qt.app import BrowseWindow, CaptureWindow, Runtime
+from cogstash.ui.qt.app import BrowseWindow, CaptureWindow
+from cogstash.ui.qt.runtime import Runtime
 
 
 @pytest.fixture(scope="module")
@@ -98,7 +99,8 @@ def test_hotkey_failure_keeps_manual_capture_available(app, tmp_path, monkeypatc
     monkeypatch.setitem(sys.modules, "pynput.keyboard", SimpleNamespace(GlobalHotKeys=fail))
     runtime = Runtime(app, tmp_path / "notes.md")
     runtime.start_hotkey("invalid")
-    assert runtime.listener is None
+    assert runtime.hotkeys.listener is None
+    app.processEvents()
     assert "Global hotkey unavailable" in runtime.warning.text()
     runtime.capture.reveal()
     assert runtime.capture.isVisible()

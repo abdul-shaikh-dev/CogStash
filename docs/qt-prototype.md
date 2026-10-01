@@ -1,6 +1,6 @@
 # Qt Widgets prototype
 
-This is the first implementation slice of issue #57. The normal GUI still uses Tkinter. The prototype has capture, a read-only searchable Browse list, tray actions, and a global-hotkey adapter. It does not yet provide settings, tag autocomplete, note editing/deletion, onboarding, or production feature parity.
+This is the first implementation slice of issue #57. The normal GUI still uses Tkinter. The prototype has capture, a read-only searchable Browse list, tray actions, and a global-hotkey adapter. Capture now provides default-tag autocomplete, multiline growth, and size presets. It does not yet provide settings, note editing/deletion, onboarding, or production feature parity.
 
 ## Run
 
@@ -23,11 +23,37 @@ This is a console-enabled onedir diagnostic build. Production build targets and 
 ## Architecture
 
 - `ui/qt/__main__.py` parses prototype-only options and imports Qt lazily.
-- `ui/qt/app.py` owns one QApplication, capture, the list model, Browse, and runtime resources.
+- `ui/qt/app.py` creates one QApplication and defines capture, the list model, and Browse.
+- `ui/qt/runtime.py` owns lazy, reused windows and QSystemTrayIcon actions.
+- `ui/qt/hotkeys.py` owns the pynput listener and a Qt timer that checks for asynchronous listener failure.
 - Background hotkey callbacks emit a queued Qt signal. They do not operate on widgets.
 - Existing core parsing, saving, and search functions are reused without changes.
 - PySide6 Essentials is optional; QtCharts, Qt Graphs, QML, and Qt Quick are excluded from the prototype build.
-- The current implementation does not detect all asynchronous pynput listener failures. Cross-platform activation and global shortcut behavior require further validation.
+- Listener failures open Browse with actionable feedback. A live listener does not prove that every application or desktop permits global capture; native platform validation remains necessary.
+
+## Lifecycle integration for #58
+
+The runtime creates Capture and Browse only when needed and reuses their instances. Startup still opens Browse as a reachable fallback. Capture commands from pynput use queued Qt signals. Commands delivered after shutdown do nothing. Repeated listener starts do not create duplicates, and Quit stops the health timer, stops/joins the listener with a bounded retry, hides the tray, and hides open windows. Listener errors do not prevent the remaining cleanup. A backend that cannot stop within the timeout is logged and retained so it cannot be duplicated in the same runtime.
+
+The tray offers Capture, Open notes file, Browse Notes, and Quit. Clicking the tray icon opens Capture. Settings is disabled pending #60; it never starts the Tk event loop. Closing Browse hides it when a tray is available and requests Quit otherwise. Quit asks before discarding an unsaved capture draft, with Cancel as the default. Capture's close button and Escape retain the draft.
+
+Use `--window-size compact`, `default`, or `wide` alongside the existing `--theme` option. The editor grows with explicit newlines up to the preset limit. Default smart-tag suggestions support arrow keys, Tab, Enter, and mouse selection. Enter accepts a suggestion before saving; Shift+Enter inserts a newline; Escape dismisses suggestions before hiding capture. The prototype still does not load personal settings or custom tags. Hidden capture opens on the monitor containing the pointer; an already visible capture keeps its position.
+
+Validation for this slice:
+
+- Full local suite: 368 passed, including 20 new lifecycle/capture tests. Ruff and mypy passed.
+- Tests cover GUI-thread delivery, duplicate-start prevention, late listener failure, partial startup cleanup, startup/shutdown races, no-tray close behavior, draft cancellation, application-driven quit, Unicode tag insertion, keyboard/mouse completion, and size limits.
+- A real Windows pynput listener on a separate test shortcut started and stopped cleanly. This verifies backend startup/cleanup, not physical hotkey-to-focus behavior for the new code.
+- Offscreen rendering with system fonts verified the themed capture layout and suggestion list.
+- A fresh Windows diagnostic artifact was built under `dist/qt-lifecycle` to avoid replacing the still-running earlier prototype. Notices were collected. Packaged help and a four-second offscreen startup smoke check passed.
+
+### Platform limits
+
+On Wayland, this adapter deliberately declines global registration and opens Browse with manual Capture access. Detection is covered by a simulated environment test; no native Wayland session was available. pynput documents that XWayland only observes events from applications using XWayland, which is insufficient for a system-wide shortcut. No uinput/root fallback is attempted. On X11, a usable X server and DISPLAY are required. Native X11 integration remains unverified here.
+
+macOS failure feedback points to Accessibility permission for the app or Python launcher. The installed pynput backend sets its trust flag inside its thread, so the adapter does not reject access based on the class's initial value. Permission-error behavior is simulated in tests; a native macOS test remains outstanding. See [pynput platform limitations](https://pynput.readthedocs.io/en/latest/limitations.html).
+
+Issue #58 remains open for native focus and scaling acceptance, platform testing, and completion of the Settings action through #60. The earlier #57 checks below remain applicable. Tk stays the default entry point.
 
 ## Validation recorded on 2026-10-02
 
