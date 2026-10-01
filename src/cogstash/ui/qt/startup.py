@@ -30,6 +30,9 @@ def batch_contents(command: list[str]) -> bytes:
 
 
 class StartupManager:
+    path: Path
+    contents: bytes
+
     def __init__(self, config_path: Path) -> None:
         if sys.platform != "win32" or not os.environ.get("APPDATA"):
             raise OSError("Windows startup requires a valid APPDATA directory.")

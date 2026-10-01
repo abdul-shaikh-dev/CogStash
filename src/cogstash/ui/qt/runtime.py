@@ -129,7 +129,11 @@ class Runtime(QObject):
             return
         if self._settings is None:
             try:
-                startup = StartupManager(self.config_path) if self.installed and sys.platform == "win32" and self.config_path is not None else None
+                startup: StartupManager | None = None
+                config_path = self.config_path
+                if config_path is not None and self.installed:
+                    if sys.platform == "win32":
+                        startup = StartupManager(config_path)
                 self._settings = SettingsDialog(self.config, self.config_path, self.apply_config,
                                                 setup=setup, can_apply=self.can_apply_config, startup=startup)
             except (OSError, ValueError) as exc:
