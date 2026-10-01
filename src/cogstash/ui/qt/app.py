@@ -1,28 +1,27 @@
 """Capture and read-only Browse prototype. No access to the user's default config."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, QPersistentModelIndex, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QPersistentModelIndex, Qt, Signal, Slot
+from PySide6.QtGui import QCloseEvent, QCursor, QHideEvent, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
-    QMenu,
+    QListWidget,
     QPlainTextEdit,
     QPushButton,
-    QStyle,
-    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
-from cogstash.core import Note, append_note_to_file, parse_notes, search_notes
-from cogstash.ui.ui_shared import THEMES
+from cogstash.core import DEFAULT_SMART_TAGS, Note, append_note_to_file, parse_notes, search_notes
+from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
 
 
 class NoteModel(QAbstractListModel):
@@ -53,10 +52,77 @@ class CaptureEdit(QPlainTextEdit):
     save_requested = Signal()
     dismiss_requested = Signal()
 
+    def __init__(self, tags: dict[str, str] | None = None) -> None:
+        super().__init__()
+        self.tags = dict(DEFAULT_SMART_TAGS if tags is None else tags)
+        self.suggestions = QListWidget()
+        self.suggestions.setAccessibleName("Tag suggestions")
+        self.suggestions.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.suggestions.hide()
+        self.suggestions.itemClicked.connect(self.confirm_tag)
+        self.textChanged.connect(self.update_suggestions)
+        self.cursorPositionChanged.connect(self.update_suggestions)
+
+    def fragment(self) -> tuple[int, str] | None:
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            return None
+        before = QTextCursor(cursor)
+        before.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        match = re.search(r"(?:^|[ \t])#([^\s#]*)$", before.selectedText())
+        if match is None:
+            return None
+        fragment = match.group(1)
+        # QTextCursor positions count UTF-16 code units, unlike Python string indexes.
+        start = cursor.position() - len(("#" + fragment).encode("utf-16-le")) // 2
+        return start, fragment.lower()
+
+    @Slot()
+    def update_suggestions(self) -> None:
+        fragment = self.fragment()
+        matches = [] if fragment is None else [name for name in self.tags if name.startswith(fragment[1])]
+        self.suggestions.clear()
+        if not matches or (len(matches) == 1 and fragment is not None and matches[0] == fragment[1]):
+            self.suggestions.hide()
+            return
+        for name in matches:
+            self.suggestions.addItem(f"{self.tags[name]} #{name}")
+            self.suggestions.item(self.suggestions.count() - 1).setData(Qt.ItemDataRole.UserRole, name)
+        self.suggestions.setCurrentRow(0)
+        row_height = max(self.suggestions.sizeHintForRow(0), self.fontMetrics().height() + 8)
+        self.suggestions.setFixedHeight(min(len(matches), 5) * row_height + 24)
+        self.suggestions.show()
+
+    def confirm_tag(self) -> None:
+        item = self.suggestions.currentItem()
+        fragment = self.fragment()
+        if item is None or fragment is None:
+            return
+        name = item.data(Qt.ItemDataRole.UserRole)
+        cursor = self.textCursor()
+        cursor.setPosition(fragment[0], QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(f"#{name}")
+        self.setTextCursor(cursor)
+        self.suggestions.hide()
+        self.setFocus()
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
+        key = event.key()
+        shift = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        if self.suggestions.isVisible():
+            if key == Qt.Key.Key_Escape:
+                self.suggestions.hide()
+                return
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                step = -1 if key == Qt.Key.Key_Up else 1
+                self.suggestions.setCurrentRow(max(0, min(self.suggestions.count() - 1, self.suggestions.currentRow() + step)))
+                return
+            if key in (Qt.Key.Key_Tab, Qt.Key.Key_Return, Qt.Key.Key_Enter) and not shift:
+                self.confirm_tag()
+                return
+        if key == Qt.Key.Key_Escape:
             self.dismiss_requested.emit()
-        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not shift:
             self.save_requested.emit()
         else:
             super().keyPressEvent(event)
@@ -65,12 +131,13 @@ class CaptureEdit(QPlainTextEdit):
 class CaptureWindow(QWidget):
     saved = Signal()
 
-    def __init__(self, notes_path: Path) -> None:
+    def __init__(self, notes_path: Path, window_size: str = "default") -> None:
         super().__init__()
         self.notes_path = notes_path
+        self.size_preset = WINDOW_SIZES[window_size]
         self.setWindowTitle("CogStash · Capture prototype")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
-        self.resize(520, 230)
+        self.setFixedWidth(self.size_preset["width"])
         layout = QVBoxLayout(self)
         heading = QLabel("Capture a thought")
         heading.setObjectName("heading")
@@ -79,6 +146,9 @@ class CaptureWindow(QWidget):
         self.editor.setAccessibleName("Note text")
         self.editor.setPlaceholderText("What's on your mind?")
         layout.addWidget(self.editor)
+        layout.addWidget(self.editor.suggestions)
+        self.editor.textChanged.connect(self.grow_editor)
+        self.grow_editor()
         self.status = QLabel("Enter to save · Shift+Enter for a new line · Esc to dismiss")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -86,7 +156,22 @@ class CaptureWindow(QWidget):
         self.editor.dismiss_requested.connect(self.hide)
 
     @Slot()
+    def grow_editor(self) -> None:
+        lines = min(max(self.editor.blockCount(), self.size_preset["lines"]), self.size_preset["max_lines"])
+        self.editor.setFixedHeight(lines * self.editor.fontMetrics().lineSpacing() + 28)
+        self.adjustSize()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        self.editor.suggestions.hide()
+        super().hideEvent(event)
+
+    @Slot()
     def reveal(self) -> None:
+        if not self.isVisible():
+            screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+            if screen is not None:
+                area = screen.availableGeometry()
+                self.move(area.center().x() - self.width() // 2, area.center().y() - self.height() // 2)
         self.showNormal()
         self.raise_()
         self.activateWindow()
@@ -112,10 +197,13 @@ class CaptureWindow(QWidget):
 
 
 class BrowseWindow(QWidget):
-    def __init__(self, notes_path: Path) -> None:
+    close_requested = Signal()
+
+    def __init__(self, notes_path: Path, managed: bool = False) -> None:
         super().__init__()
         self.notes_path = notes_path
         self.notes: list[Note] = []
+        self.managed = managed
         self.setWindowTitle("CogStash · Browse prototype")
         self.resize(760, 620)
         layout = QVBoxLayout(self)
@@ -161,72 +249,16 @@ class BrowseWindow(QWidget):
         self.status.setText(f"{len(self.model.notes)} of {len(self.notes)} notes · {self.notes_path}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        # Closing Browse quits only when there is no tray recovery path.
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            self.hide()
+        if self.managed:
             event.ignore()
+            self.close_requested.emit()
         else:
-            QApplication.quit()
+            event.accept()
 
 
-class Runtime(QObject):
-    capture_requested = Signal()
+def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool, window_size: str = "default") -> int:
+    from cogstash.ui.qt.runtime import Runtime
 
-    def __init__(self, app: QApplication, notes: Path) -> None:
-        super().__init__()
-        self.listener: Any = None
-        self.capture = CaptureWindow(notes)
-        self.browse = BrowseWindow(notes)
-        self.capture.saved.connect(self.browse.reload)
-        self.capture_requested.connect(self.capture.reveal, Qt.ConnectionType.QueuedConnection)
-        capture_button = QPushButton("Capture")
-        capture_button.clicked.connect(self.capture.reveal)
-        self.browse.action_row.addWidget(capture_button)
-        quit_button = QPushButton("Quit")
-        quit_button.clicked.connect(app.quit)
-        self.browse.action_row.addWidget(quit_button)
-        self.warning = QLabel()
-        self.warning.setWordWrap(True)
-        self.browse.action_row.addWidget(self.warning)
-        self.tray = QSystemTrayIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView), self)
-        self.tray.setToolTip("CogStash Qt prototype")
-        self.menu = QMenu()
-        for text, callback in (("Capture", self.capture.reveal), ("Browse", self.show_browse), ("Quit", app.quit)):
-            action = QAction(text, self.menu)
-            action.triggered.connect(callback)
-            self.menu.addAction(action)
-        self.tray.setContextMenu(self.menu)
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            self.tray.show()
-        app.aboutToQuit.connect(self.shutdown)
-
-    @Slot()
-    def show_browse(self) -> None:
-        self.browse.reload()
-        self.browse.showNormal()
-        self.browse.raise_()
-        self.browse.activateWindow()
-
-    def start_hotkey(self, hotkey: str) -> None:
-        try:
-            from pynput.keyboard import GlobalHotKeys
-
-            listener = GlobalHotKeys({hotkey: self.capture_requested.emit})
-            listener.start()
-            self.listener = listener
-        except Exception as exc:
-            self.warning.setText(f"Global hotkey unavailable: {exc}. Use Capture here or in the tray.")
-
-    @Slot()
-    def shutdown(self) -> None:
-        if self.listener is not None:
-            self.listener.stop()
-            self.listener.join(timeout=1)
-            self.listener = None
-        self.tray.hide()
-
-
-def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool) -> int:
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     palette = THEMES[theme]
@@ -239,8 +271,11 @@ def run(notes: Path, hotkey: str, theme: str, enable_hotkey: bool) -> int:
         QListView::item:selected {{ background: {palette['accent']}; color: {palette['bg']}; }}
         QLabel#heading {{ font-size: 24px; font-weight: 600; padding: 8px 0; }}
     """)
-    runtime = Runtime(app, notes)
-    if enable_hotkey:
-        runtime.start_hotkey(hotkey)
-    runtime.show_browse()
-    return app.exec()
+    runtime = Runtime(app, notes, window_size)
+    try:
+        if enable_hotkey:
+            runtime.start_hotkey(hotkey)
+        runtime.show_browse()
+        return app.exec()
+    finally:
+        runtime.shutdown()

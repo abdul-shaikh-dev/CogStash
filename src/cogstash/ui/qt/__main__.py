@@ -11,6 +11,7 @@ def main() -> int:
     parser.add_argument("--hotkey", default="<ctrl>+<shift>+<space>")
     parser.add_argument("--no-hotkey", action="store_true", help="Disable global registration for testing")
     parser.add_argument("--theme", choices=["tokyo-night", "light", "dracula", "gruvbox", "mono"], default="tokyo-night")
+    parser.add_argument("--window-size", choices=["compact", "default", "wide"], default="default")
     args = parser.parse_args()
     try:
         from cogstash.ui.qt.app import run
@@ -18,7 +19,7 @@ def main() -> int:
         if exc.name and exc.name.startswith("PySide6"):
             parser.exit(2, "Qt prototype requires Python 3.10+ and the qt extra: uv sync --extra qt\n")
         raise
-    return run(args.notes.expanduser(), args.hotkey, args.theme, not args.no_hotkey)
+    return run(args.notes.expanduser(), args.hotkey, args.theme, not args.no_hotkey, args.window_size)
 
 
 if __name__ == "__main__":
