@@ -178,10 +178,12 @@ class EditDialog(QDialog):
 class BrowseWindow(QWidget):
     close_requested = Signal()
 
-    def __init__(self, notes_path: Path, managed: bool = False, theme: str = "tokyo-night") -> None:
+    def __init__(self, notes_path: Path, managed: bool = False, theme: str = "tokyo-night",
+                 configured_tags: dict[str, str] | None = None) -> None:
         super().__init__()
         self.notes_path = notes_path
         self.managed = managed
+        self.configured_tags = dict(DEFAULT_SMART_TAGS if configured_tags is None else configured_tags)
         self.notes: list[Note] = []
         self.read_error = ""
         self._edit_dialog: EditDialog | None = None
@@ -287,7 +289,7 @@ class BrowseWindow(QWidget):
             self.read_error = f"Could not read notes: {exc}"
         tag = self.tags.currentData()
         counts = count_tags(self.notes)
-        names = list(dict.fromkeys([*DEFAULT_SMART_TAGS, *counts, *([tag] if tag else [])]))
+        names = list(dict.fromkeys([*self.configured_tags, *counts, *([tag] if tag else [])]))
         self.tags.blockSignals(True)
         self.tags.clear()
         self.tags.addItem("All tags", None)

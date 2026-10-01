@@ -7,8 +7,11 @@ from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import QApplication, QLabel, QMenu, QMessageBox, QPushButton, QStyle, QSystemTrayIcon
 
-from cogstash.ui.qt.app import BrowseWindow, CaptureWindow
+from cogstash.core import CogStashConfig, merge_tags
+from cogstash.ui.qt.app import BrowseWindow, CaptureWindow, apply_theme
 from cogstash.ui.qt.hotkeys import HotkeyAdapter
+from cogstash.ui.qt.settings import SettingsDialog, WelcomeDialog, onboarding_kind
+from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
 
 
 class Runtime(QObject):
@@ -20,6 +23,10 @@ class Runtime(QObject):
         self.notes = notes
         self.window_size = window_size
         self.theme = theme
+        self.config = CogStashConfig(output_file=notes, window_size=window_size, theme=theme)
+        self.config_path: Path | None = None
+        self._settings: SettingsDialog | None = None
+        self._welcome: WelcomeDialog | None = None
         self.closed = False
         self._capture: CaptureWindow | None = None
         self._browse: BrowseWindow | None = None
@@ -39,8 +46,7 @@ class Runtime(QObject):
             action = QAction(text, self.menu)
             action.triggered.connect(callback)
             self.menu.addAction(action)
-        settings = self.menu.addAction("Settings")
-        settings.setEnabled(False)  # Qt Settings is tracked separately in #60.
+        self.menu.addAction("Settings", self.show_settings)
         self.menu.addSeparator()
         self.menu.addAction("Quit", self.request_quit)
         self.tray.setContextMenu(self.menu)
@@ -53,15 +59,17 @@ class Runtime(QObject):
     def capture(self) -> CaptureWindow:
         if self._capture is None:
             self._capture = CaptureWindow(self.notes, window_size=self.window_size)
+            self._capture.editor.tags = merge_tags(self.config)[0]
             self._capture.saved.connect(self.note_saved)
         return self._capture
 
     @property
     def browse(self) -> BrowseWindow:
         if self._browse is None:
-            self._browse = BrowseWindow(self.notes, managed=True, theme=self.theme)
+            self._browse = BrowseWindow(self.notes, managed=True, theme=self.theme,
+                                        configured_tags=merge_tags(self.config)[0])
             self._browse.close_requested.connect(self.close_browse)
-            for text, callback in (("Capture", self.show_capture), ("Quit", self.request_quit)):
+            for text, callback in (("Capture", self.show_capture), ("Settings", self.show_settings), ("Quit", self.request_quit)):
                 button = QPushButton(text)
                 button.clicked.connect(callback)
                 self._browse.action_row.addWidget(button)
@@ -71,6 +79,79 @@ class Runtime(QObject):
             assert layout is not None
             layout.addWidget(self.warning)
         return self._browse
+
+    def configure(self, config: CogStashConfig, config_path: Path | None) -> None:
+        self.config_path = config_path
+        self.apply_config(config)
+
+    def can_apply_config(self, config: CogStashConfig) -> str | None:
+        if config.output_file != self.notes:
+            if self._capture is not None and self._capture.editor.toPlainText().strip():
+                return "Save or clear the capture draft before changing the notes file."
+            if self._browse is not None and self._browse._edit_dialog is not None:
+                return "Finish or cancel the note edit before changing the notes file."
+        return None
+
+    def apply_config(self, config: CogStashConfig) -> None:
+        changed_path = self.notes != config.output_file
+        changed_hotkey = self.config.hotkey != config.hotkey
+        self.config = config
+        assert config.output_file is not None
+        self.notes = config.output_file
+        self.window_size = config.window_size
+        self.theme = config.theme
+        apply_theme(self.app, self.theme)
+        if self._capture is not None:
+            self._capture.notes_path = self.notes
+            self._capture.size_preset = WINDOW_SIZES[self.window_size]
+            self._capture.setFixedWidth(self._capture.size_preset["width"])
+            self._capture.editor.tags = merge_tags(config)[0]
+            self._capture.editor.update_suggestions()
+            self._capture.grow_editor()
+        if self._browse is not None:
+            self._browse.notes_path = self.notes
+            self._browse.configured_tags = merge_tags(config)[0]
+            self._browse.delegate.colors = THEMES[self.theme]
+            if changed_path:
+                self._browse._undo = None
+                self._browse.undo_button.setEnabled(False)
+            self._browse.reload()
+        if changed_hotkey and self._settings is not None:
+            self.show_warning("Settings saved. Restart CogStash to use the changed global hotkey.")
+
+    @Slot()
+    def show_settings(self, setup: bool = False) -> None:
+        if self.closed:
+            return
+        if self._settings is None:
+            try:
+                self._settings = SettingsDialog(self.config, self.config_path, self.apply_config,
+                                                setup=setup, can_apply=self.can_apply_config)
+            except (OSError, ValueError) as exc:
+                self.show_warning(f"Could not open settings: {exc}")
+                return
+            self._settings.finished.connect(self.settings_finished)
+        self._settings.showNormal()
+        self._settings.raise_()
+        self._settings.activateWindow()
+
+    def settings_finished(self) -> None:
+        if self._settings is not None:
+            self._settings.deleteLater()
+            self._settings = None
+
+    def show_onboarding(self) -> None:
+        if self.config_path is None:
+            return
+        kind = onboarding_kind(self.config)
+        if kind == "setup":
+            self.show_settings(setup=True)
+        elif kind is not None:
+            try:
+                self._welcome = WelcomeDialog(self.config, self.config_path, kind, self.apply_config)
+                self._welcome.show()
+            except (OSError, ValueError) as exc:
+                self.show_warning(f"Could not open welcome: {exc}")
 
     @Slot()
     def show_capture(self) -> None:
@@ -104,6 +185,7 @@ class Runtime(QObject):
 
     def start_hotkey(self, hotkey: str) -> None:
         if not self.closed:
+            self.config.hotkey = hotkey
             self.hotkeys.start(hotkey)
 
     @Slot(QSystemTrayIcon.ActivationReason)
@@ -133,6 +215,15 @@ class Runtime(QObject):
     def request_quit(self) -> None:
         if self.closed:
             return
+        if self._settings is not None and self._settings.has_changes():
+            answer = QMessageBox.question(
+                self._settings, "Unsaved settings", "Quit and discard the unsaved settings?",
+                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Discard:
+                self.show_settings()
+                return
         if self._browse is not None and not self._browse.confirm_discard_edit():
             return
         if self._capture is not None and self._capture.editor.toPlainText().strip():
@@ -159,3 +250,7 @@ class Runtime(QObject):
             self._capture.hide()
         if self._browse is not None:
             self._browse.hide()
+        if self._settings is not None:
+            self._settings.reject()
+        if self._welcome is not None:
+            self._welcome.reject()
