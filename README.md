@@ -423,3 +423,7 @@ uv run mypy src/
 This project is licensed under the MIT License.
 
 See [`LICENSE`](LICENSE) for the full text.
+
+## Experimental Qt Widgets UI
+
+A separate PySide6 capture-and-Browse prototype is available. The normal app still uses Tkinter. See [prototype setup and validation](docs/qt-prototype.md) for commands and current limitations.
