@@ -9,6 +9,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 
 def _scripts_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "scripts"
@@ -566,3 +568,19 @@ def test_compile_installer_resolves_paths_relative_to_caller(tmp_path, monkeypat
     assert f"/DSourceDir={tmp_path / 'build/payload'}" in calls[0]
     assert f"/DOutputDir={tmp_path / 'dist'}" in calls[0]
     assert calls[0][-1] == str(tmp_path / "installer/app.iss")
+
+
+@pytest.mark.parametrize("version,expected", [
+    ("0.1.dev1+g816208cd7", "0.1.0.1"),
+    ("1.2.3+g123456789", "1.2.3.0"),
+    ("1.2.3rc2", "1.2.3.2"),
+    ("1.2.3.post4", "1.2.3.4"),
+    ("1.2.3.4", "1.2.3.4"),
+])
+def test_windows_version_excludes_git_hash_and_handles_short_releases(version, expected):
+    assert _load_build_installer_module().make_version_info_version(version) == expected
+
+
+def test_windows_version_rejects_out_of_range_components():
+    with pytest.raises(ValueError, match="65535"):
+        _load_build_installer_module().make_version_info_version("65536.0.0")

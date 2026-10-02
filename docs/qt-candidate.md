@@ -34,7 +34,7 @@ Compile the Windows candidate installer using the existing payload contract:
 uv run python scripts/build_installer.py --dist-dir dist/qt-candidate --build-dir build/qt-candidate --output-dir dist/qt-candidate --compiler "C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
 ```
 
-The builder stages the UI as `CogStash.exe`, adds `CogStash-CLI.exe` and its `bin/cogstash.cmd` shim, and refreshes the diagnostic inventory for those final paths. Inno Setup receives absolute paths so custom staging directories work regardless of the `.iss` location. This command compiles an installer; it does not install or launch it. The installer retains its existing install identity, so actual install/upgrade/uninstall trials belong in an isolated Windows environment.
+The builder stages the UI as `CogStash.exe`, adds `CogStash-CLI.exe` and its `bin/cogstash.cmd` shim, and refreshes the diagnostic inventory for those final paths. Inno Setup receives absolute paths so custom staging directories work regardless of the `.iss` location. Windows file-version numbers use the parsed release and revision, excluding Git hash/date metadata; values outside the Windows component range are rejected. Packaging CI fetches full Git history for consistent SCM versions. This command compiles an installer; it does not install or launch it. The installer retains its existing install identity, so actual install/upgrade/uninstall trials belong in an isolated Windows environment.
 
 ## Validation and evidence
 
@@ -42,7 +42,7 @@ The new CI matrix builds and smoke-tests both artifacts on Windows, macOS, and L
 
 Local Windows results:
 
-- Full regression suite: 461 passed. Ruff and mypy passed.
+- Full regression suite: 467 passed. Ruff and mypy passed.
 - The candidate installer compiles with Inno Setup. The renamed staged executable starts with a simulated installation marker, the CLI shim prints its version, and all staged inventory hashes match. This does not establish actual install, upgrade, PATH registration, or uninstall behavior.
 - UI onedir size including diagnostic notices: 118.2 MiB. CLI onefile size: 9.1 MiB. The earlier Browse diagnostic was about 117.9 MiB; the candidate remains close to that size.
 - UI help, CLI help/version, and four-second UI startup checks for new and existing configs pass without modifying the fixtures.

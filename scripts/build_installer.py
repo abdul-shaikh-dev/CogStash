@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
 from importlib.metadata import version as package_version
 from pathlib import Path
+
+from packaging.version import Version
 
 try:
     from scripts import _artifacts
@@ -43,11 +44,18 @@ def get_version() -> str:
 
 def make_version_info_version(version: str) -> str:
     """Convert a package version string into a numeric Windows file version."""
-    parts = re.findall(r"\d+", version)
-    numeric_parts = parts[:4]
-    while len(numeric_parts) < 4:
-        numeric_parts.append("0")
-    return ".".join(numeric_parts)
+    parsed = Version(version)
+    parts = list(parsed.release[:4])
+    while len(parts) < 3:
+        parts.append(0)
+    if len(parts) < 4:
+        revision = parsed.dev if parsed.dev is not None else parsed.post
+        if revision is None:
+            revision = parsed.pre[1] if parsed.pre else 0
+        parts.append(revision)
+    if any(part > 65535 for part in parts):
+        raise ValueError("Windows file-version components must be between 0 and 65535.")
+    return ".".join(str(part) for part in parts)
 
 
 def find_windows_onedir_bundle(dist_dir: Path, version: str) -> Path:
