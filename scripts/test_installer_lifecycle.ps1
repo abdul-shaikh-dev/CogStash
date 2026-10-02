@@ -78,7 +78,7 @@ try {
 } finally {
     @{ success=$success; checks=$checks.ToArray(); cross_version_upgrade_verified=$false; interactive_desktop_verified=$false; python_free_machine_verified=$false } |
         ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $reportDir 'report.json') -Encoding utf8
-    if (-not $success -and (Test-Path -LiteralPath $uninstaller)) {
-        Run-Setup $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+    if (-not $success -and (Test-Path -LiteralPath $uninstallKey) -and (Test-Path -LiteralPath $uninstaller)) {
+        try { Run-Setup $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') } catch { Write-Warning $_ }
     }
 }

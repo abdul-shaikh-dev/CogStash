@@ -107,7 +107,7 @@ begin
   Remaining := PathStr;
   NewPath := '';
   Sep := '';
-  while Remaining <> '' do
+  while True do
   begin
     SemiPos := Pos(';', Remaining);
     if SemiPos > 0 then
@@ -125,6 +125,8 @@ begin
       NewPath := NewPath + Sep + Part;
       Sep := ';';
     end;
+    if SemiPos = 0 then
+      Break;
   end;
   Result := NewPath;
 end;
