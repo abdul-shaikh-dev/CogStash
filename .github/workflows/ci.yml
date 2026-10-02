@@ -115,6 +115,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $compiler)) { choco install innosetup --no-progress -y }
           uv run python scripts/build_installer.py --dist-dir dist/qt-candidate --build-dir build/qt-candidate --output-dir dist/qt-candidate --compiler $compiler
       - name: Verify Windows install, reinstall, and uninstall
+        timeout-minutes: 5
         if: runner.os == 'Windows'
         shell: pwsh
         run: |

@@ -26,11 +26,9 @@ function Assert-Check([bool]$Condition, [string]$Message) {
     $checks.Add($Message)
 }
 function Run-Setup([string]$Exe, [string[]]$Arguments) {
-    $process = Start-Process -FilePath $Exe -ArgumentList $Arguments -PassThru -WindowStyle Hidden
-    if (-not $process.WaitForExit(120000)) {
-        $process.Kill()
-        throw "Installer timed out: $Exe"
-    }
+    # Inno uninstall hands work to a child. -Wait waits for descendants too.
+    # The CI step timeout bounds this wait.
+    $process = Start-Process -FilePath $Exe -ArgumentList $Arguments -PassThru -WindowStyle Hidden -Wait
     if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode): $Exe" }
 }
 function User-Path { [Environment]::GetEnvironmentVariable('Path', 'User') }
