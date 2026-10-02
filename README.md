@@ -426,4 +426,6 @@ See [`LICENSE`](LICENSE) for the full text.
 
 ## Experimental Qt Widgets UI
 
-A separate PySide6 capture-and-Browse prototype is available. The normal app still uses Tkinter. See [prototype setup and validation](docs/qt-prototype.md) for commands and current limitations.
+The optional PySide6 UI includes capture, Browse, settings, and onboarding. The normal app still uses Tkinter. See [prototype setup and validation](docs/qt-prototype.md) for isolated evaluation, or [Qt candidate packaging](docs/qt-candidate.md) for the installed-launch candidate, Windows startup controls, and packaging checks.
+
+The Qt builder uses Python 3.10 through 3.14 with PySide6 Essentials 6.11.2. Core and CLI retain the Python 3.9 minimum. Default UI cutover remains pending desktop, installer, and license acceptance; no Qt release has been published.

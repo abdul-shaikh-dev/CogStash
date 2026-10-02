@@ -9,6 +9,7 @@ import importlib.metadata as metadata
 import json
 import shutil
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -47,6 +48,24 @@ def runtime_distributions() -> dict[str, metadata.Distribution]:
     return found
 
 
+def bundle_inventory(bundle: Path) -> list[dict[str, object]]:
+    return [
+        {"path": path.relative_to(bundle).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
+        for path in sorted(bundle.rglob("*"))
+        if path.is_file() and path.relative_to(bundle).parts[0] != "notices"
+    ]
+
+
+def refresh_staged_inventory(bundle: Path) -> None:
+    """Record renamed executables and the CLI/shim added by installer staging."""
+    path = bundle / "notices" / "inventory.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if report.get("format") != "cogstash-diagnostic-inventory-v1":
+        raise ValueError("Unknown diagnostic inventory format")
+    report["bundled_files_excluding_notices"] = bundle_inventory(bundle)
+    path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+
 def write_notices(bundle: Path, root: Path) -> Path:
     if not bundle.is_dir() or not any(bundle.iterdir()):
         raise ValueError("Build the bundle before collecting notices")
@@ -58,16 +77,15 @@ def write_notices(bundle: Path, root: Path) -> Path:
         raise ValueError("Update the pinned Qt license sources when changing the Qt version")
     # The frozen executable contains the PyInstaller bootloader, not its build dependency tree.
     distributions["pyinstaller"] = metadata.distribution("PyInstaller")
-    bundled_files = [
-        {"path": path.relative_to(bundle).as_posix(), "bytes": path.stat().st_size, "sha256": sha256(path)}
-        for path in sorted(bundle.rglob("*")) if path.is_file()
-    ]
+    bundled_files = bundle_inventory(bundle)
     with tempfile.TemporaryDirectory(prefix="cogstash-notices-", dir=bundle.parent) as temporary:
         staging = Path(temporary) / "notices"
         staging.mkdir()
         shutil.copyfile(root / "LICENSE", staging / "CogStash-LICENSE.txt")
-        python_license = Path(sys.base_prefix) / "LICENSE.txt"
-        if not python_license.is_file():
+        candidates = [Path(sys.base_prefix) / "LICENSE.txt", Path(sys.base_prefix) / "LICENSE",
+                      Path(sysconfig.get_path("stdlib")) / "LICENSE.txt"]
+        python_license = next((path for path in candidates if path.is_file()), None)
+        if python_license is None:
             raise FileNotFoundError("Python runtime LICENSE.txt is required for this diagnostic build")
         shutil.copyfile(python_license, staging / "Python-LICENSE.txt")
         qt_sources = root / "third_party" / f"qt-{QT_VERSION}"

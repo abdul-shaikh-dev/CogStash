@@ -2,6 +2,8 @@
 
 The experimental Qt UI tracks #57 through #60. The normal GUI still uses Tkinter. The prototype has capture, Browse with note actions, settings, onboarding, tray actions, and a global-hotkey adapter. Capture provides configured-tag autocomplete, multiline growth, and size presets. Installed startup integration and production cutover are still pending.
 
+An opt-in [packaging candidate](qt-candidate.md) now adds installed launch defaults and writable Windows startup controls. The original prototype remains isolated and keeps startup read-only. The migration sections below retain the evidence recorded for each earlier slice.
+
 ## Run
 
 The Qt extra requires Python 3.10 or newer. The tested local pair is Python 3.14.0 with PySide6 Essentials 6.11.2 on Windows 11. Existing non-Qt entry points retain their declared Python support.

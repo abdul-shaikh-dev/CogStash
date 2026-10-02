@@ -9,6 +9,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 
 def _scripts_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "scripts"
@@ -554,3 +556,31 @@ def test_installer_script_installs_cli_binary_without_shortcut():
     # No Start Menu or Desktop shortcut entries for CogStash CLI
     assert 'Name: "{group}\\CogStash CLI"' not in iss
     assert 'Name: "{autodesktop}\\CogStash CLI"' not in iss
+
+
+def test_compile_installer_resolves_paths_relative_to_caller(tmp_path, monkeypatch):
+    module = _load_build_installer_module()
+    calls = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    module.compile_installer(compiler="iscc", iss_path=Path("installer/app.iss"), version="1.2.3",
+                             source_dir=Path("build/payload"), output_dir=Path("dist"))
+    assert f"/DSourceDir={tmp_path / 'build/payload'}" in calls[0]
+    assert f"/DOutputDir={tmp_path / 'dist'}" in calls[0]
+    assert calls[0][-1] == str(tmp_path / "installer/app.iss")
+
+
+@pytest.mark.parametrize("version,expected", [
+    ("0.1.dev1+g816208cd7", "0.1.0.1"),
+    ("1.2.3+g123456789", "1.2.3.0"),
+    ("1.2.3rc2", "1.2.3.2"),
+    ("1.2.3.post4", "1.2.3.4"),
+    ("1.2.3.4", "1.2.3.4"),
+])
+def test_windows_version_excludes_git_hash_and_handles_short_releases(version, expected):
+    assert _load_build_installer_module().make_version_info_version(version) == expected
+
+
+def test_windows_version_rejects_out_of_range_components():
+    with pytest.raises(ValueError, match="65535"):
+        _load_build_installer_module().make_version_info_version("65536.0.0")

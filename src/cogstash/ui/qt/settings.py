@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from cogstash import __version__
 from cogstash.core import DEFAULT_SMART_TAGS, CogStashConfig
 from cogstash.core.config import load_config, save_config, write_json_file
 from cogstash.ui import install_state
+from cogstash.ui.qt.startup import StartupManager
 from cogstash.ui.ui_shared import THEMES, WINDOW_SIZES
 
 
@@ -118,6 +120,7 @@ class SettingsDialog(QDialog):
         self, config: CogStashConfig, config_path: Path | None,
         on_saved: Callable[[CogStashConfig], None], parent: QWidget | None = None,
         *, setup: bool = False, can_apply: Callable[[CogStashConfig], str | None] | None = None,
+        startup: StartupManager | None = None,
     ) -> None:
         super().__init__(parent)
         self.original = copy.deepcopy(config)
@@ -126,6 +129,8 @@ class SettingsDialog(QDialog):
         self.on_saved = on_saved
         self.can_apply = can_apply
         self.setup = setup
+        self.startup_manager = startup
+        self.startup_baseline = startup.snapshot() if startup is not None else None
         self.setWindowTitle("Welcome to CogStash" if setup else "CogStash Settings")
         self.resize(640, 590)
         layout = QVBoxLayout(self)
@@ -157,9 +162,13 @@ class SettingsDialog(QDialog):
         form.addRow(test)
         self.startup = QCheckBox("Launch CogStash at system startup")
         self.startup.setChecked(install_state.startup_script_exists() if os.name == "nt" else config.launch_at_startup)
-        self.startup.setEnabled(False)
+        if startup is not None:
+            self.startup.setChecked(self.startup_baseline is not None)
+        self.startup.setEnabled(startup is not None)
         form.addRow(self.startup)
         startup_help = QLabel("Startup is read-only in the Qt prototype. Windows shows the existing CogStash startup script. Startup integration will be enabled with the installed Qt build." if os.name == "nt" else "Startup management is supported on Windows only.")
+        if startup is not None:
+            startup_help.setText("Start this CogStash build with this configuration when you sign in. Changes apply on Save.")
         startup_help.setWordWrap(True)
         form.addRow(startup_help)
         self.tabs.addTab(general, "&General")
@@ -216,7 +225,7 @@ class SettingsDialog(QDialog):
     def fields(self) -> tuple[object, ...]:
         cells = [self.tags.item(row, column) for row in range(self.tags.rowCount()) for column in range(3)]
         return (self.notes.text(), self.hotkey.text(), self.theme.currentText(), self.window_size.currentText(),
-                tuple(item.text() if item is not None else "" for item in cells))
+                tuple(item.text() if item is not None else "" for item in cells), self.startup.isChecked())
 
     def has_changes(self) -> bool:
         return self.fields() != self.initial_fields
@@ -269,6 +278,8 @@ class SettingsDialog(QDialog):
                 raise ValueError(f"Duplicate custom tag: #{name}.")
             tags[name] = {"emoji": emoji, "color": color}
         result = replace(self.original, output_file=path, hotkey=hotkey, theme=self.theme.currentText(), window_size=self.window_size.currentText(), tags=tags or None)
+        if self.startup_manager is not None:
+            result.launch_at_startup = self.startup.isChecked()
         if self.setup:
             result.last_seen_version = __version__
             if install_state.is_installed_windows_run():
@@ -282,8 +293,10 @@ class SettingsDialog(QDialog):
                 reason = self.can_apply(candidate)
                 if reason:
                     raise ValueError(reason)
-            if self.config_path is not None:
-                persist(candidate, self.config_path, self.baseline)
+            transaction = self.startup_manager.change(candidate.launch_at_startup, self.startup_baseline) if self.startup_manager is not None else nullcontext()
+            with transaction:
+                if self.config_path is not None:
+                    persist(candidate, self.config_path, self.baseline)
         except (OSError, ValueError) as exc:
             self.error.setText(f"Could not save settings: {exc}")
             return
